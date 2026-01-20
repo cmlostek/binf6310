@@ -1,0 +1,39 @@
+---
+title: "lab_1"
+output: pdf_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+```
+
+# Use the mean and sd functions to calculate the mean and standard deviation of the following numbers  (2.3,  4.3 ,1.2 , 3.4, 8.3, 12.2) 
+
+``` {r}
+nums <- c(2.3,  4.3 ,1.2 , 3.4, 8.3, 12.2)
+mean <- mean(nums)
+sd <- sd(nums)
+```
+
+# Use mean and sd in R to calculate the average and sd of (4,5,6 …. 678,679,680) [the set of every positive integer between 4 and 680]
+
+``` {r}
+nums2 <- seq(4:680)
+avg <- mean(nums2)
+sd <- sd(nums2)
+```
+
+# (3) Suppose you are given GC content for sequences from a human genome with values for many sequences: gc <- runif(1000, min = 0.2, max = 0.8). 
+- Plot a histogram of gc.
+- Compute the mean and standard deviation.
+- Does this look like a reasonable sequencing dataset? Why or why not?
+
+```{r}
+gc <- runif(1000, min = 0.2, max = 0.8)
+hist(gc)
+mean(gc)
+sd(gc)
+```
+This distribution is not good as the numbers are basically "random" this shows that you are looking at numbers that have been generated and is not accurate to a real gene set. 
