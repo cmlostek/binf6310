@@ -1,0 +1,125 @@
+---
+title: "lab2"
+author: "cmlostek"
+date: "2026-02-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Question 1
+``` {r}
+# Input data
+data <- c(2,3,2,6,3,5,6,2,6,6,2,6,6,2,3,6,6,6,5,6,6,5,6,6,6,6,6,4,6,3,3,3,6,6,5,6,6)
+
+# Initial priors
+p_loaded <- 0.01
+p_fair <- 0.99
+
+# Vectors to store results
+posteriors <- numeric(length(data))
+
+# Bayesian Update Loop
+current_p_L <- p_loaded
+current_p_F <- p_fair
+
+for (i in 1:length(data)) {
+  roll <- data[i]
+  
+  # Likelihoods
+  if (roll == 6) {
+    lik_L <- 0.50
+    lik_F <- 1/6
+  } else {
+    lik_L <- 0.10
+    lik_F <- 1/6
+  }
+  
+  # Update numerator (unnormalized posterior)
+  num_L <- current_p_L * lik_L
+  num_F <- current_p_F * lik_F
+  
+  # Normalize
+  current_p_L <- num_L / (num_L + num_F)
+  current_p_F <- 1 - current_p_L
+  
+  posteriors[i] <- current_p_L
+}
+
+# Plotting
+plot(1:length(data), posteriors, type="b", pch=19, col="blue",
+     xlab="Number of Rolls", ylab="P(Loaded | Data)",
+     main="Posterior Probability of Loaded Die")
+abline(h=0.5, col="red", lty=2) # 50% threshold line
+```
+
+In order to be 99.99 percent sure that the die was a loaded one you would need to roll it roughly 25 times. When you run the simulation with the given data the graph produced reaches 99% around the 24 - 25 mark.  
+
+# Question 2
+``` {r}
+# Parameters
+prevalence <- 0.001
+sensitivity <- 0.91
+specificity <- 0.84
+target_threshold <- 0.99999
+n_sims <- 100000
+
+# Bayesian update function
+update_posterior <- function(prior, result, sens, spec) {
+  if (result == "pos") {
+    num <- sens * prior
+    den <- (sens * prior) + ((1 - spec) * (1 - prior))
+  } else {
+    num <- (1 - sens) * prior
+    den <- ((1 - sens) * prior) + (spec * (1 - prior))
+  }
+  return(num / den)
+}
+
+# Simulation function
+simulate_patient <- function(has_disease, prior, sens, spec, target) {
+  current_p <- prior
+  tests <- 0
+  
+  # Target for healthy patients is to reach a posterior <= (1 - target)
+  threshold_met <- FALSE
+  
+  while (!threshold_met) {
+    tests <- tests + 1
+    
+    # Generate test result based on actual status
+    roll <- runif(1)
+    if (has_disease) {
+      result <- if (roll <= sens) "pos" else "neg"
+    } else {
+      result <- if (roll <= spec) "neg" else "pos"
+    }
+    
+    current_p <- update_posterior(current_p, result, sens, spec)
+    
+    # Check stopping conditions
+    if (has_disease && current_p >= target) threshold_met <- TRUE
+    if (!has_disease && current_p <= (1 - target)) threshold_met <- TRUE
+  }
+  return(tests)
+}
+
+# Run Simulations
+set.seed(42) # For reproducibility
+diseased_results <- replicate(n_sims, simulate_patient(TRUE, prevalence, sensitivity, specificity, target_threshold))
+healthy_results <- replicate(n_sims, simulate_patient(FALSE, prevalence, sensitivity, specificity, target_threshold))
+
+# Calculate Results
+avg_diseased <- mean(diseased_results)
+avg_healthy <- mean(healthy_results)
+total_budget <- (1000 * avg_diseased) + (999000 * avg_healthy)
+
+# Print Summary
+cat("Average tests for diseased patient:", round(avg_diseased, 2), "\n")
+cat("Average tests for healthy patient:", round(avg_healthy, 2), "\n")
+cat("Total budget for 1M patients: $", format(round(total_budget, 0), big.mark=","), "\n")
+```
+

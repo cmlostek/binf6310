@@ -74,9 +74,10 @@ for (i in 1:length(trialSizes)) {
 par(mfrow = c(1, 2))
 
 # Left Plot: Means
-plot(log10(trialSizes), means, ylim = c(3, 6), xlab = "log10(trialSizes)", ylab = "means")
+plot(log10(trialSizes), means, ylim = c(3, 5), xlab = "log10(trialSizes)", ylab = "means")
 abline(h = theoretical_mean) # Adds the horizontal reference line
 # Right Plot: Variances
-plot(log10(trialSizes), vars, ylim = c(3,6), xlab = "log10(trialSizes)", ylab = "variances")
+plot(log10(trialSizes), vars, ylim = c(3, 5), xlab = "log10(trialSizes)", ylab = "variances")
 abline(h = theoretical_var) # Adds the horizontal reference line
 ```
+From this graph the convergence begins to happen in the middle (roughly 1,000 - 10,000 rolls.)
