@@ -1,0 +1,257 @@
+---
+title: "Lab4"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+## Setup: Download and Load Data
+
+```{r load_data}
+zipUrl  <- "http://afodor.github.io/classes/stats2015/longitdunalRNASeqData.zip"
+zipFile <- "longitdunalRNASeqData.zip"
+dataFile <- "nc101_scaff_dataCounts.txt"
+
+if (!file.exists(dataFile)) {
+  download.file(zipUrl, zipFile)
+  unzip(zipFile)
+}
+
+myT <- read.table(dataFile, header = TRUE, row.names = 1)
+```
+
+---
+
+## Question 2: log10-log10 Plot of D2_01 vs D2_02
+
+```{r q2}
+# Add 1 to avoid log10(0)
+plot(log10(myT$D2_01 + 1), log10(myT$D2_02 + 1),
+     xlab = "log10(D2_01 + 1)",
+     ylab = "log10(D2_02 + 1)",
+     main = "Gene Expression: D2_01 vs D2_02 (log10 scale)",
+     pch  = 16, cex = 0.5, col = rgb(0, 0, 0, 0.3))
+abline(0, 1, col = "red", lwd = 2)
+```
+
+**Qualitative assessment:** The two biological replicates show very similar
+patterns of gene expression. Points fall tightly along the identity line,
+indicating that genes expressed at high levels in D2_01 are also expressed at
+high levels in D2_02, as expected for biological replicates from the same
+experimental condition.
+
+---
+
+## Question 3: Variance vs Mean (log10-log10 scale)
+
+```{r q3}
+geneMeans <- apply(myT, 1, mean)
+geneVars  <- apply(myT, 1, var)
+
+# Keep genes with positive mean and variance for log plotting
+keep <- geneMeans > 0 & geneVars > 0
+
+plot(log10(geneMeans[keep]), log10(geneVars[keep]),
+     xlab = "log10(Mean)",
+     ylab = "log10(Variance)",
+     main = "Variance vs Mean across all genes (log10 scale)",
+     pch  = 16, cex = 0.5, col = rgb(0, 0, 0, 0.3))
+
+# Identity line: variance = mean
+abline(0, 1, col = "red", lwd = 2)
+legend("topleft", legend = "Identity (var = mean)", col = "red", lwd = 2)
+```
+
+**Does the mean equal the variance?** No. The points fall substantially
+**above** the red identity line, meaning the variance is much larger than the
+mean for most genes. This is characteristic of **overdispersion** — a
+hallmark of RNA-seq count data that violates the Poisson assumption
+(where mean = variance). A Negative Binomial model would be more appropriate.
+
+---
+
+## Question 4: Fisher Test for First Gene (NC101_00003)
+
+```{r q4}
+firstGene <- "NC101_00003"
+
+# Counts assigned to this gene
+a <- myT[firstGene, "D2_01"]   # assigned in D2_01
+b <- myT[firstGene, "D2_02"]   # assigned in D2_02
+
+# Total sequences in each sample
+total_D2_01 <- sum(myT$D2_01)
+total_D2_02 <- sum(myT$D2_02)
+
+# 2x2 contingency table
+#                 D2_01                D2_02
+# Assigned        a                    b
+# Not assigned    total_D2_01 - a      total_D2_02 - b
+
+contTable <- matrix(
+  c(a,               b,
+    total_D2_01 - a, total_D2_02 - b),
+  nrow = 2, byrow = TRUE,
+  dimnames = list(
+    c("Assigned to NC101_00003", "Not assigned"),
+    c("D2_01", "D2_02")
+  )
+)
+
+print(contTable)
+
+fisher_result <- fisher.test(contTable, alternative = "two.sided")
+cat("Fisher test p-value for NC101_00003:", fisher_result$p.value, "\n")
+```
+
+---
+
+## Question 5: Fisher Test for All Genes
+
+```{r q5_all_genes}
+total_D2_01 <- sum(myT$D2_01)
+total_D2_02 <- sum(myT$D2_02)
+
+fisher_pvals <- apply(myT, 1, function(row) {
+  a <- row["D2_01"]
+  b <- row["D2_02"]
+  mat <- matrix(c(a, b, total_D2_01 - a, total_D2_02 - b),
+                nrow = 2, byrow = TRUE)
+  fisher.test(mat, alternative = "two.sided")$p.value
+})
+
+hist(fisher_pvals,
+     breaks = 50,
+     main   = "Histogram of Fisher Test P-values (all genes)",
+     xlab   = "p-value",
+     col    = "steelblue")
+```
+
+**Are p-values uniformly distributed?** No. There is a strong spike near
+p = 1, with very few small p-values. This is the **opposite** of what we
+would expect if all null hypotheses were true (uniform distribution).
+The p-values are less significant than expected — most genes show no
+evidence of differential expression between the two biological replicates,
+consistent with them being from the same condition.
+
+```{r q5_filtered}
+myT_filt <- myT[(myT$D2_01 + myT$D2_02 > 50), ]
+cat("Genes remaining after abundance filter:", nrow(myT_filt), "\n")
+
+total_D2_01_f <- sum(myT_filt$D2_01)
+total_D2_02_f <- sum(myT_filt$D2_02)
+
+fisher_pvals_filt <- apply(myT_filt, 1, function(row) {
+  a <- row["D2_01"]
+  b <- row["D2_02"]
+  mat <- matrix(c(a, b, total_D2_01_f - a, total_D2_02_f - b),
+                nrow = 2, byrow = TRUE)
+  fisher.test(mat, alternative = "two.sided")$p.value
+})
+
+hist(fisher_pvals_filt,
+     breaks = 50,
+     main   = "Fisher Test P-values (genes with count > 50)",
+     xlab   = "p-value",
+     col    = "coral")
+```
+
+**Effect of removing low-abundance genes:** After filtering, the distribution
+becomes more uniform-ish, though still somewhat right-skewed toward p = 1.
+Low-abundance genes have very low counts in both samples, so nearly any small
+difference looks proportionally large, inflating p-values toward 1 or
+producing very significant p-values when one sample has 0 reads.
+Removing them makes the test more meaningful.
+
+---
+
+## Question 6: Poisson Test for First Gene (NC101_00003) with Pseudo-count
+
+```{r q6}
+myT_pseudo <- myT + 1
+
+firstGene <- "NC101_00003"
+
+total_D2_01_ps <- sum(myT_pseudo$D2_01)
+total_D2_02_ps <- sum(myT_pseudo$D2_02)
+
+count_D2_01 <- myT_pseudo[firstGene, "D2_01"]
+count_D2_02 <- myT_pseudo[firstGene, "D2_02"]
+
+# Expected frequency (rate) estimated from D2_01
+p_hat <- count_D2_01 / total_D2_01_ps
+
+# Expected count in D2_02 under null: p_hat * total_D2_02
+lambda_expected <- p_hat * total_D2_02_ps
+
+cat("Counts in D2_01:", count_D2_01, "\n")
+cat("Total D2_01:", total_D2_01_ps, "\n")
+cat("Expected frequency p =", p_hat, "\n")
+cat("Counts in D2_02:", count_D2_02, "\n")
+cat("Expected count in D2_02:", lambda_expected, "\n")
+
+poisson_result <- poisson.test(count_D2_02, T = total_D2_02_ps / total_D2_01_ps,
+                                r = count_D2_01, alternative = "two.sided")
+# Simpler: test if D2_02 count matches expected rate
+poisson_result2 <- poisson.test(count_D2_02, lambda_expected)
+
+cat("Poisson test p-value for NC101_00003:", poisson_result2$p.value, "\n")
+```
+
+---
+
+## Question 7: Poisson P-values for All Genes vs Fisher P-values
+
+```{r q7}
+total_D2_01_ps <- sum(myT_pseudo$D2_01)
+total_D2_02_ps <- sum(myT_pseudo$D2_02)
+
+poisson_pvals <- apply(myT_pseudo, 1, function(row) {
+  count1 <- row["D2_01"]
+  count2 <- row["D2_02"]
+  p_hat  <- count1 / total_D2_01_ps
+  lambda <- p_hat * total_D2_02_ps
+  poisson.test(count2, lambda)$p.value
+})
+
+# Fisher p-values computed on original (no pseudo-count) data
+fisher_pvals_all <- apply(myT, 1, function(row) {
+  a <- row["D2_01"]
+  b <- row["D2_02"]
+  mat <- matrix(c(a, b, total_D2_01 - a, total_D2_02 - b),
+                nrow = 2, byrow = TRUE)
+  fisher.test(mat, alternative = "two.sided")$p.value
+})
+
+# Align by gene names
+common_genes <- intersect(names(poisson_pvals), names(fisher_pvals_all))
+fp <- fisher_pvals_all[common_genes]
+pp <- poisson_pvals[common_genes]
+
+plot(log10(fp + 1e-300), log10(pp + 1e-300),
+     xlab = "log10(Fisher p-value)",
+     ylab = "log10(Poisson p-value)",
+     main = "Fisher vs Poisson P-values (log10 scale)",
+     pch  = 16, cex = 0.5, col = rgb(0, 0, 0, 0.3))
+abline(0, 1, col = "red", lwd = 2)
+legend("topleft", legend = "Identity", col = "red", lwd = 2)
+
+cor_val <- cor(log10(fp + 1e-300), log10(pp + 1e-300), method = "spearman")
+cat("Spearman correlation between log10 p-values:", round(cor_val, 4), "\n")
+```
+
+**How well do they agree?** The two sets of p-values are moderately correlated
+along the identity line, but the agreement is imperfect. Genes flagged as
+significant by one test are often also flagged by the other, but there is
+substantial scatter. This is expected because both models make assumptions
+unsupported by the data:
+
+- **Fisher test** assumes a fixed total library size and tests for proportional
+  differences, but does not account for overdispersion.
+- **Poisson test** assumes mean = variance, which we showed in Question 3 is
+  violated (variance >> mean due to overdispersion in RNA-seq data).
+
+With n = 1 replicate per condition and overdispersed counts, both models are
+misspecified and conclusions should be interpreted with caution.
