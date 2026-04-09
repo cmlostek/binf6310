@@ -1,0 +1,204 @@
+---
+title: "Lab 5"
+output: html_document
+author: Cole M. in conjunction with Claude Code
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+---
+
+## Question 1: Cancer Risk vs. Cell Divisions
+
+### 1A: Download Data and Plot (log10-log10 scale)
+
+```{r q1a}
+cancerFile <- "cancerRisk.txt"
+if (!file.exists(cancerFile)) {
+  download.file("https://fodorclasses.github.io/classes/stats2020/cancerRisk.txt",
+                cancerFile)
+}
+
+cancer <- read.table(cancerFile, header = TRUE, sep = "\t")
+
+plot(log10(cancer$CumulativeCellDivisions), log10(cancer$Lifetime_cancer_risk),
+     xlab = "log10(Cumulative Cell Divisions)",
+     ylab = "log10(Lifetime Cancer Risk)",
+     main = "Cancer Risk vs. Cumulative Cell Divisions (log10-log10)",
+     pch  = 16, col = "steelblue")
+```
+
+This reproduces Figure 1 from Tomasetti & Vogelstein (2015). Each point is a
+cancer type; the axes are both on a log10 scale.
+
+---
+
+### 1B: Linear Model and Regression Line
+
+```{r q1b}
+myLm <- lm(log10(Lifetime_cancer_risk) ~ log10(CumulativeCellDivisions),
+           data = cancer)
+
+plot(log10(cancer$CumulativeCellDivisions), log10(cancer$Lifetime_cancer_risk),
+     xlab = "log10(Cumulative Cell Divisions)",
+     ylab = "log10(Lifetime Cancer Risk)",
+     main = "Cancer Risk vs. Cumulative Cell Divisions with Regression Line",
+     pch  = 16, col = "steelblue")
+abline(myLm, col = "red", lwd = 2)
+legend("topleft", legend = "Regression line", col = "red", lwd = 2)
+```
+
+---
+
+### 1C: P-value and R-squared
+
+```{r q1c}
+lm_summary <- summary(myLm)
+
+pval   <- anova(myLm)$"Pr(>F)"[1]
+rsq    <- lm_summary$r.squared
+
+cat("P-value for slope = 0:", pval, "\n")
+cat("R-squared:", rsq, "\n")
+```
+
+The p-value for the null hypothesis that the slope is zero is extremely small
+(far below 0.05), providing very strong evidence that cumulative cell divisions
+are associated with lifetime cancer risk. The R-squared value indicates that
+roughly **`r round(rsq * 100, 1)`%** of the variance in log10 cancer risk is
+explained by log10 cumulative cell divisions.
+
+---
+
+### 1D: Residual Diagnostics
+
+```{r q1d}
+par(mfrow = c(1, 2))
+
+# Residuals vs Fitted (constant variance check)
+plot(myLm$fitted.values, myLm$residuals,
+     xlab = "Fitted values",
+     ylab = "Residuals",
+     main = "Residuals vs. Fitted",
+     pch  = 16, col = "steelblue")
+abline(h = 0, col = "red", lty = 2)
+
+# Q-Q plot (normality check)
+qqnorm(myLm$residuals, pch = 16, col = "steelblue",
+       main = "Normal Q-Q Plot of Residuals")
+qqline(myLm$residuals, col = "red", lwd = 2)
+
+par(mfrow = c(1, 1))
+```
+
+**Constant variance:** The residuals vs. fitted plot shows no strong funnel
+shape or systematic pattern, suggesting the constant-variance assumption is
+roughly satisfied on the log10-log10 scale.
+
+**Normality:** The Q-Q plot follows the reference line reasonably well in the
+center, though there is some deviation in the tails. With only
+`r nrow(cancer)` data points (cancer types), slight deviations are common and
+the normality assumption appears broadly reasonable. Overall, the model
+assumptions are defensible for these data.
+
+---
+
+## Question 2: Microbiome BMI Association
+
+```{r q2_load}
+ccFile  <- "caseControlData.txt"
+bmiFile <- "BMI_Data.txt"
+
+if (!file.exists(ccFile)) {
+  download.file("http://afodor.github.io/classes/stats2015/caseControlData.txt",
+                ccFile)
+}
+if (!file.exists(bmiFile)) {
+  download.file("http://afodor.github.io/classes/stats2015/BMI_Data.txt",
+                bmiFile)
+}
+
+ccData  <- read.table(ccFile,  header = TRUE, sep = "\t", comment.char = "",
+                      check.names = FALSE)
+bmiData <- read.table(bmiFile, header = TRUE, sep = "\t", comment.char = "")
+```
+
+```{r q2_merge}
+# Process sample IDs in ccData to match BMI file keys
+sampleIDs <- as.character(ccData[, 1])
+
+makeKey <- function(sampleID) {
+  key <- sub("case",    "", sampleID)
+  key <- sub("control", "", key)
+  key <- strsplit(key, "_")[[1]][1]
+  return(key)
+}
+
+keys <- sapply(sampleIDs, makeKey)
+
+# Match keys to BMI table
+bmiRownames <- as.character(bmiData[, 1])
+matchIdx    <- match(keys, bmiRownames)
+
+bmiValues <- bmiData[matchIdx, "bmi"]
+
+# Keep only samples with a BMI value
+keep      <- !is.na(bmiValues)
+bmiVec    <- bmiValues[keep]
+ccSubset  <- ccData[keep, ]
+
+cat("Samples with BMI data:", sum(keep), "\n")
+```
+
+```{r q2_regression}
+# OTU columns: all columns except the first (sample ID)
+otuCols <- 2:ncol(ccSubset)
+
+# Convert OTU counts to relative abundance (row-wise)
+otuCounts   <- as.matrix(ccSubset[, otuCols])
+rowTotals   <- rowSums(otuCounts)
+otuRelAbund <- otuCounts / rowTotals
+
+pvals <- numeric(length(otuCols))
+otuNames <- colnames(ccSubset)[otuCols]
+
+for (i in seq_along(otuCols)) {
+  relAbund <- otuRelAbund[, i]
+  myLm_otu <- lm(relAbund ~ bmiVec)
+  pvals[i] <- anova(myLm_otu)$"Pr(>F)"[1]
+}
+
+names(pvals) <- otuNames
+```
+
+```{r q2_plot}
+hist(pvals,
+     breaks = 50,
+     main   = "P-values: Linear Regression of BMI vs. OTU Relative Abundance",
+     xlab   = "p-value",
+     col    = "steelblue")
+```
+
+```{r q2_fdr}
+adjPvals <- p.adjust(pvals, method = "BH")
+sigOTUs  <- sum(adjPvals < 0.10, na.rm = TRUE)
+cat("OTUs significant at 10% FDR:", sigOTUs, "\n")
+cat("Total OTUs tested:", length(pvals), "\n")
+```
+
+**Are p-values uniformly distributed?** The histogram of p-values appears
+roughly uniform across [0, 1], consistent with the null hypothesis being true
+for most OTUs. There is no strong spike near zero that would indicate a large
+number of true associations.
+
+**Does the microbial community appear to influence body weight?** Based on
+these results, there is little evidence that OTU relative abundances are
+strongly associated with BMI in this cohort. The distribution of p-values does
+not depart dramatically from uniformity.
+
+**Significant at 10% FDR?** After Benjamini-Hochberg correction,
+**`r sigOTUs`** OTU(s) are significant at a 10% false discovery rate,
+suggesting minimal or no reliable associations between BMI and the microbial
+community in this dataset.
