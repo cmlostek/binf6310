@@ -1,0 +1,245 @@
+---
+title: "Lab 6"
+output: html_document
+author: Cole M. in conjunction with Claude Code
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+## Setup: Download, Load, Filter, and Normalize Data
+
+```{r load_data}
+zipUrl   <- "http://afodor.github.io/classes/stats2015/longitdunalRNASeqData.zip"
+zipFile  <- "longitdunalRNASeqData.zip"
+dataFile <- "nc101_scaff_dataCounts.txt"
+
+if (!file.exists(dataFile)) {
+  download.file(zipUrl, zipFile)
+  unzip(zipFile)
+}
+
+myT <- read.table(dataFile, header = TRUE, row.names = 1, sep = "\t")
+
+# Remove rare genes (row median <= 5)
+myT <- myT[apply(myT, 1, median) > 5, ]
+
+# Column-sum normalize each sample to relative abundance
+myTNorm <- myT
+for (i in 1:ncol(myT)) {
+  colSum <- sum(myT[, i])
+  myTNorm[, i] <- myTNorm[, i] / colSum
+}
+
+# Category and time vectors
+# Columns: 1-3 = day 2, 4-6 = week 12, 7-11 = week 18 (labeled w20)
+cats <- factor(c(rep("day2", 3), rep("week12", 3), rep("week18", 5)),
+               levels = c("day2", "week12", "week18"))
+times <- c(rep(2, 3), rep(86, 3), rep(128, 5))
+
+cat("Genes retained after filtering:", nrow(myTNorm), "\n")
+cat("Samples:", ncol(myTNorm), "\n")
+```
+
+---
+
+## Question A: One-way ANOVA (three categories)
+
+For each gene, fit a one-way ANOVA with factor `cats` (day2 / week12 / week18).
+
+```{r qA}
+pValuesOneWayAnova <- vector(length = nrow(myTNorm))
+index              <- vector(length = nrow(myTNorm))
+
+for (i in 1:nrow(myTNorm)) {
+  index[i] <- i
+  myData   <- as.numeric(myTNorm[i, ])
+  myLm     <- lm(myData ~ cats)
+  pValuesOneWayAnova[i] <- anova(myLm)$"Pr(>F)"[1]
+}
+
+hist(pValuesOneWayAnova,
+     breaks = 50,
+     main   = "One-way ANOVA p-values (three categories)",
+     xlab   = "p-value",
+     col    = "steelblue")
+
+adjA   <- p.adjust(pValuesOneWayAnova, method = "BH")
+sigA   <- sum(adjA < 0.05, na.rm = TRUE)
+cat("Genes significant at BH FDR < 0.05 (Model A):", sigA, "\n")
+```
+
+There is a strong spike of small p-values, indicating many genes differ across
+the three time categories. **`r sigA`** genes are significant at a
+BH-corrected 5% FDR.
+
+---
+
+## Question B: Linear Regression on Time (days)
+
+For each gene, fit a linear regression with time in days (2, 86, 128).
+
+```{r qB}
+pValuesRegression <- vector(length = nrow(myTNorm))
+
+for (i in 1:nrow(myTNorm)) {
+  myData <- as.numeric(myTNorm[i, ])
+  myLm   <- lm(myData ~ times)
+  pValuesRegression[i] <- anova(myLm)$"Pr(>F)"[1]
+}
+
+hist(pValuesRegression,
+     breaks = 50,
+     main   = "Regression on time p-values (two-parameter model)",
+     xlab   = "p-value",
+     col    = "darkorange")
+
+adjB <- p.adjust(pValuesRegression, method = "BH")
+sigB <- sum(adjB < 0.05, na.rm = TRUE)
+cat("Genes significant at BH FDR < 0.05 (Model B):", sigB, "\n")
+```
+
+**`r sigB`** genes are significant at a BH-corrected 5% FDR under the
+two-parameter linear regression on time.
+
+---
+
+## Question C: Comparing the Three-Parameter and Two-Parameter Models
+
+For each gene, test whether the three-parameter categorical model (A) provides
+a significantly better fit than the two-parameter regression-on-time model (B).
+Because (B) is nested in (A) (the categorical model has one extra parameter),
+we can compute a nested F-statistic and obtain the p-value with `pf`.
+
+```{r qC}
+pValueModelDiff <- vector(length = nrow(myTNorm))
+
+n <- ncol(myTNorm)   # 11 samples
+# df for full (categorical) model:   n - 3
+# df for reduced (regression) model: n - 2
+dfFull <- n - 3
+dfDiff <- 1          # (n-2) - (n-3) = 1
+
+for (i in 1:nrow(myTNorm)) {
+  myData  <- as.numeric(myTNorm[i, ])
+  lmFull  <- lm(myData ~ cats)     # three-parameter
+  lmRed   <- lm(myData ~ times)    # two-parameter
+
+  rssFull <- sum(residuals(lmFull)^2)
+  rssRed  <- sum(residuals(lmRed)^2)
+
+  fstat   <- ((rssRed - rssFull) / dfDiff) / (rssFull / dfFull)
+  # One-sided upper tail of F-distribution
+  pValueModelDiff[i] <- pf(fstat, dfDiff, dfFull, lower.tail = FALSE)
+}
+
+hist(pValueModelDiff,
+     breaks = 50,
+     main   = "Model comparison p-values (A vs. B)",
+     xlab   = "p-value",
+     col    = "seagreen")
+
+adjC <- p.adjust(pValueModelDiff, method = "BH")
+sigC <- sum(adjC < 0.05, na.rm = TRUE)
+cat("Genes where Model A significantly improves on Model B (BH FDR < 0.05):",
+    sigC, "\n")
+```
+
+**`r sigC`** genes show a statistically significant improvement of the
+three-parameter categorical model over the two-parameter regression-on-time
+model at a 5% FDR.
+
+---
+
+## Question D: Top-Hit Plots Under Each Model
+
+Assemble a data frame of p-values and row indices, then plot the most
+significant gene under each of the three models.
+
+```{r qD_frame}
+myFrame <- data.frame(index,
+                      pValuesOneWayAnova,
+                      pValuesRegression,
+                      pValueModelDiff)
+```
+
+### (A) Top hit — one-way ANOVA (categorical)
+
+```{r qD_A}
+frameA  <- myFrame[order(myFrame$pValuesOneWayAnova), ]
+topA    <- frameA$index[1]
+topAgene <- rownames(myTNorm)[topA]
+
+boxplot(as.numeric(myTNorm[topA, ]) ~ cats,
+        xlab = "Time category",
+        ylab = "Relative abundance",
+        main = paste0("Top one-way ANOVA hit: ", topAgene,
+                      "\np = ", signif(pValuesOneWayAnova[topA], 3)),
+        col  = c("#A6CEE3", "#1F78B4", "#08306B"))
+stripchart(as.numeric(myTNorm[topA, ]) ~ cats,
+           vertical = TRUE, add = TRUE, pch = 16, col = "red", method = "jitter")
+```
+
+### (B) Top hit — regression on time
+
+```{r qD_B}
+frameB   <- myFrame[order(myFrame$pValuesRegression), ]
+topB     <- frameB$index[1]
+topBgene <- rownames(myTNorm)[topB]
+
+yB  <- as.numeric(myTNorm[topB, ])
+lmB <- lm(yB ~ times)
+
+plot(times, yB,
+     xlab = "Time (days)",
+     ylab = "Relative abundance",
+     main = paste0("Top regression hit: ", topBgene,
+                   "\np = ", signif(pValuesRegression[topB], 3)),
+     pch  = 16, col = "darkorange")
+abline(lmB, col = "red", lwd = 2)
+legend("topright", legend = "Regression line", col = "red", lwd = 2, bty = "n")
+```
+
+### (C) Top hit — model comparison (A vs. B)
+
+```{r qD_C}
+frameC   <- myFrame[order(myFrame$pValueModelDiff), ]
+topC     <- frameC$index[1]
+topCgene <- rownames(myTNorm)[topC]
+
+boxplot(as.numeric(myTNorm[topC, ]) ~ cats,
+        xlab = "Time category",
+        ylab = "Relative abundance",
+        main = paste0("Top model-comparison hit: ", topCgene,
+                      "\np = ", signif(pValueModelDiff[topC], 3)),
+        col  = c("#B2DF8A", "#33A02C", "#1B5E20"))
+stripchart(as.numeric(myTNorm[topC, ]) ~ cats,
+           vertical = TRUE, add = TRUE, pch = 16, col = "red", method = "jitter")
+```
+
+---
+
+## Question E: Which Model is More Appropriate?
+
+The two-parameter linear regression on time (Model B) assumes that relative
+abundance changes **linearly** with day. The three-parameter categorical model
+(Model A) makes no such assumption — each time point gets its own mean.
+
+Looking at the results:
+
+- Model A flags **`r sigA`** genes at 5% FDR; Model B flags **`r sigB`**.
+- The model-comparison test in (C) finds **`r sigC`** genes where Model A
+  provides a significantly better fit than Model B.
+
+Because the sampling is very unevenly spaced in time (day 2, day 86, day 128),
+a true linear response in days is biologically implausible for most genes —
+abundances typically plateau, rebound, or shift non-monotonically. The top-hit
+boxplots under Model A and Model C show patterns (e.g. week 12 markedly
+different from both day 2 and week 18) that a straight line through day cannot
+capture. The large number of genes where Model A significantly outperforms
+Model B in (C) confirms this.
+
+**The three-parameter categorical model (A) is the more appropriate model for
+these data**, because it does not impose a linear-in-time assumption that the
+biology does not support.
