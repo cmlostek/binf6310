@@ -1,6 +1,6 @@
 ---
 title: "Bayesian Estimation of Allele Frequencies Across Human Populations: Detecting Signatures of Natural Selection Using the Beta-Binomial Model"
-author: "Cole M."
+author: "Cole M. in conjunction with Claude Sonnet 4.6"
 date: "May 2026"
 output:
   pdf_document:
@@ -88,6 +88,10 @@ In addition to these four validation loci, we expand the analysis to eight furth
 \newpage
 
 # Data and Methods
+
+## AI Usage
+
+The use of Claude Code on Model Sonnet 4.6 was used in conjunction with the author to solidify some of the R code, formatting, clarity in writing, and overall flow of the report. All code was manually reviewed for accuracy and compared to hand calculations when necessary.
 
 ## Data Source
 
@@ -940,6 +944,8 @@ Tishkoff, S. A., et al. (2007). Convergent adaptation of human lactase persisten
 Voight, B. F., et al. (2006). A map of recent positive selection in the human genome. *PLOS Biology*, 4(3), e72.
 
 Wright, S. (1951). The genetical structure of populations. *Annals of Eugenics*, 15(1), 323–354.
+
+
 
 ---
 
